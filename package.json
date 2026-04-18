@@ -1,0 +1,19 @@
+{
+  "name": "secure-file-management-system",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "start": "concurrently \"npm run start --workspace server\" \"npm run start --workspace client\"",
+    "seed": "npm run seed --workspace server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "react": "^19.2.5"
+  }
+}
