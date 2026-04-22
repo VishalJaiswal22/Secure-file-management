@@ -22,6 +22,7 @@ export default function App() {
   const [mode, setMode] = useState("login");
   const [otpSessionId, setOtpSessionId] = useState("");
   const [demoOtp, setDemoOtp] = useState("");
+  const [otpHint, setOtpHint] = useState("");
   const [form, setForm] = useState({ name: "", email: "", password: "", otp: "" });
   const [user, setUser] = useState(null);
   const [dashboard, setDashboard] = useState(initialDashboard);
@@ -86,9 +87,11 @@ export default function App() {
       const response = await api.post("/auth/login", { email: form.email, password: form.password });
       if (response.data.requiresTwoFactor) {
         setOtpSessionId(response.data.sessionId);
-        setDemoOtp(response.data.demoOtp);
+        setDemoOtp(response.data.emailSent ? "" : "Use DEMO_OTP from server/.env");
+        setOtpHint(response.data.otpHint || "");
+        setForm((current) => ({ ...current, otp: "" }));
         setMode("otp");
-        notify("success", "OTP sent", `Use demo OTP ${response.data.demoOtp} for local testing.`);
+        notify("success", "OTP required", response.data.otpHint || "Enter the OTP to continue.");
         return;
       }
       localStorage.setItem("sfm_token", response.data.token);
@@ -102,7 +105,10 @@ export default function App() {
   async function handleVerifyOtp(event) {
     event.preventDefault();
     try {
-      const response = await api.post("/auth/verify-otp", { sessionId: otpSessionId, otp: form.otp });
+      const response = await api.post("/auth/verify-otp", {
+        sessionId: otpSessionId,
+        otp: form.otp.trim()
+      });
       localStorage.setItem("sfm_token", response.data.token);
       setUser(response.data.user);
       await fetchAppData();
@@ -190,8 +196,8 @@ export default function App() {
     const email = window.prompt("Share with email");
     if (!email) return;
     try {
-      await api.post(`/files/${file._id}/share`, { email, access: ["view", "edit", "share"] });
-      notify("success", "File shared", `${file.fileName} was shared with ${email}.`);
+      const response = await api.post(`/files/${file._id}/share`, { email, access: ["view", "edit", "share"] });
+      notify("success", "File shared", response.data.message || `${file.fileName} was shared with ${email}.`);
       await fetchAppData();
     } catch (error) {
       notify("error", "Share failed", error.response?.data?.message || "Try again.");
@@ -209,13 +215,21 @@ export default function App() {
           <AuthCard title="Two-Factor Verification" subtitle="Enter the OTP to complete a secure sign-in.">
             <form className="space-y-4" onSubmit={handleVerifyOtp}>
               <div className="rounded-2xl bg-brand-50 p-4 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">
-                Demo OTP for local testing: <span className="font-bold">{demoOtp}</span>
+                {otpHint || "Enter the OTP sent for this login."}
+                {demoOtp && <span className="mt-1 block font-bold">{demoOtp}</span>}
               </div>
               <input
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-950"
                 placeholder="6-digit OTP"
+                inputMode="numeric"
+                maxLength={6}
                 value={form.otp}
-                onChange={(event) => setForm({ ...form, otp: event.target.value })}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    otp: event.target.value.replace(/\D/g, "").slice(0, 6)
+                  })
+                }
               />
               <button className="w-full rounded-2xl bg-brand-500 px-4 py-3 font-semibold text-white">Verify OTP</button>
             </form>

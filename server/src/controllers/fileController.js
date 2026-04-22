@@ -5,6 +5,7 @@ const File = require("../models/File");
 const User = require("../models/User");
 const asyncHandler = require("../utils/asyncHandler");
 const { logActivity } = require("../services/activityService");
+const { canSendEmail, sendSharedFileEmail } = require("../services/mailService");
 const { safeMimeTypes, encryptBuffer, decryptBuffer, simulateMalwareDetection } = require("../utils/security");
 
 exports.renameValidation = [body("fileName").trim().isLength({ min: 1, max: 120 })];
@@ -20,9 +21,24 @@ function canAccessFile(file, userId, requiredPermission = "view") {
   // Shared file access is resolved per file so we can support different permissions for each recipient.
   return file.sharedWith.some(
     (entry) =>
+      entry.user &&
       String(entry.user) === String(userId) &&
       (entry.access.includes(requiredPermission) || entry.access.includes("share"))
   );
+}
+
+function canAccessFileByIdentity(file, user, requiredPermission = "view") {
+  if (String(file.owner) === String(user._id)) return true;
+  return file.sharedWith.some((entry) => {
+    const matchesUser = entry.user && String(entry.user) === String(user._id);
+    const matchesEmail = entry.email && entry.email === user.email;
+    return (matchesUser || matchesEmail) &&
+      (entry.access.includes(requiredPermission) || entry.access.includes("share"));
+  });
+}
+
+function getAttachmentLimitBytes() {
+  return Number(process.env.EMAIL_ATTACHMENT_LIMIT_MB || 20) * 1024 * 1024;
 }
 
 exports.uploadFile = asyncHandler(async (req, res) => {
@@ -77,7 +93,9 @@ exports.uploadFile = asyncHandler(async (req, res) => {
 
 exports.listFiles = asyncHandler(async (req, res) => {
   const myFiles = await File.find({ owner: req.user._id }).sort({ createdAt: -1 });
-  const sharedFiles = await File.find({ "sharedWith.user": req.user._id })
+  const sharedFiles = await File.find({
+    $or: [{ "sharedWith.user": req.user._id }, { "sharedWith.email": req.user.email }]
+  })
     .populate("owner", "name email")
     .sort({ createdAt: -1 });
 
@@ -86,7 +104,7 @@ exports.listFiles = asyncHandler(async (req, res) => {
 
 exports.downloadFile = asyncHandler(async (req, res) => {
   const file = await File.findById(req.params.id);
-  if (!file || !canAccessFile(file, req.user._id, "view")) {
+  if (!file || !canAccessFileByIdentity(file, req.user, "view")) {
     const error = new Error("File not found or access denied");
     error.statusCode = 404;
     throw error;
@@ -139,7 +157,7 @@ exports.deleteFile = asyncHandler(async (req, res) => {
 
 exports.renameFile = asyncHandler(async (req, res) => {
   const file = await File.findById(req.params.id);
-  if (!file || !canAccessFile(file, req.user._id, "edit")) {
+  if (!file || !canAccessFileByIdentity(file, req.user, "edit")) {
     const error = new Error("File not found or edit permission required");
     error.statusCode = 404;
     throw error;
@@ -162,35 +180,81 @@ exports.renameFile = asyncHandler(async (req, res) => {
 
 exports.shareFile = asyncHandler(async (req, res) => {
   const file = await File.findById(req.params.id);
-  if (!file || !canAccessFile(file, req.user._id, "share")) {
+  if (!file || !canAccessFileByIdentity(file, req.user, "share")) {
     const error = new Error("File not found or share permission required");
     error.statusCode = 404;
     throw error;
   }
 
-  const targetUser = await User.findOne({ email: req.body.email.toLowerCase() });
-  if (!targetUser) {
-    const error = new Error("Target user not found");
-    error.statusCode = 404;
-    throw error;
-  }
+  const shareEmail = req.body.email.toLowerCase();
+  const targetUser = await User.findOne({ email: shareEmail });
 
-  const existing = file.sharedWith.find((entry) => String(entry.user) === String(targetUser._id));
+  const existing = file.sharedWith.find(
+    (entry) => entry.email === shareEmail || (targetUser && entry.user && String(entry.user) === String(targetUser._id))
+  );
   if (existing) {
     existing.access = req.body.access;
+    existing.email = shareEmail;
+    if (targetUser) {
+      existing.user = targetUser._id;
+    }
   } else {
-    file.sharedWith.push({ user: targetUser._id, access: req.body.access });
+    file.sharedWith.push({
+      user: targetUser?._id,
+      email: shareEmail,
+      access: req.body.access
+    });
   }
 
   await file.save();
+
+  let emailStatus = {
+    sent: false,
+    reason: "smtp_not_configured"
+  };
+
+  if (canSendEmail()) {
+    if (file.fileSize > getAttachmentLimitBytes()) {
+      emailStatus = {
+        sent: false,
+        reason: "attachment_too_large"
+      };
+    } else {
+      const encryptedBuffer = fs.readFileSync(file.encryptedPath);
+      const decrypted = decryptBuffer(encryptedBuffer, file.iv);
+      emailStatus = await sendSharedFileEmail({
+        to: shareEmail,
+        senderName: req.user.name,
+        fileName: file.fileName,
+        fileBuffer: decrypted,
+        mimeType: file.mimeType
+      });
+    }
+  }
+
   await logActivity({
     userId: req.user._id,
     action: "File shared",
     targetType: "share",
     targetId: file._id,
-    details: `${file.fileName} shared with ${targetUser.email}`,
+    details: `${file.fileName} shared with ${shareEmail}${emailStatus.sent ? " and emailed as attachment" : ""}`,
     ipAddress: req.ip
   });
 
-  res.json({ message: "File shared successfully", file });
+  let message = "File shared successfully.";
+  if (emailStatus.sent) {
+    message = "File shared successfully and emailed as an attachment.";
+  } else if (emailStatus.reason === "attachment_too_large") {
+    message = `File shared in the app, but not emailed because it is larger than ${process.env.EMAIL_ATTACHMENT_LIMIT_MB || 20} MB.`;
+  } else if (emailStatus.reason === "email_send_failed") {
+    message = "File shared in the app, but sending the email attachment failed. Check SMTP settings and the server terminal.";
+  } else if (!targetUser) {
+    message = "File shared successfully. The recipient can also see it in the app after signing up with that email.";
+  }
+
+  res.json({
+    message,
+    emailStatus,
+    file
+  });
 });

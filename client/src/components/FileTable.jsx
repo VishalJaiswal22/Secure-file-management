@@ -29,7 +29,11 @@ export default function FileTable({ title, files, layout, setLayout, onDownload,
       </div>
       <div className={layout === "grid" ? "grid gap-4 md:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
         {files.map((file) => {
-          const owned = file.owner === currentUserId || file.owner?._id === currentUserId;
+          const ownerId =
+            typeof file.owner === "string"
+              ? file.owner
+              : file.owner?._id || file.owner?.toString?.();
+          const owned = ownerId === String(currentUserId);
           return (
             <div key={file._id} className={`rounded-3xl border border-slate-200 p-4 transition hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 ${layout === "list" ? "flex flex-col gap-4 md:flex-row md:items-center md:justify-between" : ""}`}>
               <div className="flex items-start gap-3">

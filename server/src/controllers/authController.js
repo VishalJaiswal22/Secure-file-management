@@ -6,6 +6,7 @@ const User = require("../models/User");
 const Session = require("../models/Session");
 const asyncHandler = require("../utils/asyncHandler");
 const { logActivity } = require("../services/activityService");
+const { canSendEmail, sendOtpEmail } = require("../services/mailService");
 
 const registerValidation = [
   body("name").trim().isLength({ min: 2, max: 80 }),
@@ -29,6 +30,14 @@ function signToken(userId, tokenId) {
     process.env.JWT_SECRET || "super-secret-jwt-key",
     { expiresIn: process.env.JWT_EXPIRES_IN || "8h" }
   );
+}
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function normalizeOtp(value) {
+  return String(value || "").replace(/\s+/g, "").trim();
 }
 
 exports.registerValidation = registerValidation;
@@ -74,14 +83,21 @@ exports.login = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  // Keep only one active OTP challenge per user so older codes do not keep causing confusion.
+  await Session.updateMany(
+    { user: user._id, status: "pending_2fa" },
+    { status: "revoked" }
+  );
+
+  const otpCode = generateOtp();
   const session = await Session.create({
     user: user._id,
     tokenId: uuidv4(),
     userAgent: req.headers["user-agent"] || "unknown",
     ipAddress: req.ip,
     status: user.twoFactorEnabled ? "pending_2fa" : "active",
-    otpCode: process.env.DEMO_OTP || "123456",
-    expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000)
+    otpCode,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000)
   });
 
   await logActivity({
@@ -93,11 +109,21 @@ exports.login = asyncHandler(async (req, res) => {
   });
 
   if (user.twoFactorEnabled) {
+    console.log(`OTP for ${user.email}: ${otpCode}`);
+    const emailResult = await sendOtpEmail({
+      to: user.email,
+      otp: otpCode,
+      name: user.name
+    });
+
     return res.json({
       message: "OTP required",
       requiresTwoFactor: true,
       sessionId: session._id,
-      demoOtp: process.env.DEMO_OTP || "123456"
+      emailSent: emailResult.sent,
+      otpHint: emailResult.sent
+        ? `OTP sent to ${user.email}`
+        : "SMTP not configured. Use the demo OTP from your server .env file."
     });
   }
 
@@ -119,14 +145,27 @@ exports.login = asyncHandler(async (req, res) => {
 });
 
 exports.verifyOtp = asyncHandler(async (req, res) => {
-  const { sessionId, otp } = req.body;
+  const { sessionId } = req.body;
+  const normalizedOtp = normalizeOtp(req.body.otp);
   const session = await Session.findById(sessionId).populate("user");
   if (!session || session.status !== "pending_2fa") {
     const error = new Error("Invalid session");
     error.statusCode = 401;
     throw error;
   }
-  if (session.otpCode !== otp) {
+
+  if (session.expiresAt && session.expiresAt.getTime() < Date.now()) {
+    session.status = "revoked";
+    await session.save();
+    const error = new Error("OTP expired. Please login again.");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (session.otpCode !== normalizedOtp) {
+    console.log(
+      `OTP mismatch for ${session.user.email}: expected ${session.otpCode}, received ${normalizedOtp}`
+    );
     const error = new Error("Invalid OTP");
     error.statusCode = 401;
     throw error;

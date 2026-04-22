@@ -2,7 +2,8 @@ const mongoose = require("mongoose");
 
 const permissionSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    email: { type: String, lowercase: true, trim: true },
     access: { type: [String], enum: ["view", "edit", "share"], default: ["view"] }
   },
   { _id: false }
