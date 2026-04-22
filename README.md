@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Secure File Management System
 
 Full-stack secure file management app with React, Tailwind CSS, Node.js, Express, and MongoDB.
@@ -61,3 +62,7 @@ Full-stack secure file management app with React, Tailwind CSS, Node.js, Express
 - `admin@example.com` / `Admin@123`
 - `user@example.com` / `User@123`
 - Demo OTP: `123456`
+=======
+# Secure-file-management
+The Secure File Management System is a web-based application that allows users to upload, rename, and manage files securely. It uses two-level authentication to protect data, ensuring confidentiality, integrity, and controlled access for safe and reliable file handling.
+>>>>>>> fce4eda1fbf3f3e7838cd1e92ce798c37453d5ef
