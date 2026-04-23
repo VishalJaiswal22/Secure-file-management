@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Secure File Management System
 
 Full-stack secure file management app with React, Tailwind CSS, Node.js, Express, and MongoDB.
@@ -11,6 +10,7 @@ Full-stack secure file management app with React, Tailwind CSS, Node.js, Express
 - Activity logs, storage usage, notifications, and dark mode
 - Role-based access and permission-aware sharing
 - File validation, size limits, and simulated malware detection
+- Email OTP and email attachment sharing when SMTP is configured
 
 ## Structure
 
@@ -18,51 +18,59 @@ Full-stack secure file management app with React, Tailwind CSS, Node.js, Express
 .
 ├── client
 │   ├── src
-│   │   ├── components
-│   │   ├── lib
-│   │   ├── utils
-│   │   ├── App.jsx
-
-│   │   ├── index.css
-│   │   └── main.jsx
-│   ├── index.html
-│   ├── package.json
-│   ├── postcss.config.js
-│   ├── tailwind.config.js
-│   └── vite.config.js
-├── server
-│   ├── src
-│   │   ├── config
-│   │   ├── controllers
-│   │   ├── middleware
-│   │   ├── models
-│   │   ├── routes
-│   │   ├── seed
-│   │   ├── services
-│   │   ├── utils
-│   │   ├── app.js
-│   │   └── server.js
-│   ├── uploads
 │   ├── .env.example
 │   └── package.json
+├── server
+│   ├── src
+│   ├── .env.example
+│   └── package.json
+├── render.yaml
 ├── package.json
 └── README.md
 ```
 
-## Run
+## Local Run
 
 1. `npm install`
-2. Start MongoDB locally or update `server/.env`
-3. Copy `server/.env.example` to `server/.env`
-4. `npm run seed`
-5. `npm start`
+2. Copy `server/.env.example` to `server/.env`
+3. Copy `client/.env.example` to `client/.env` if you want a custom frontend API URL
+4. Start MongoDB locally or provide a cloud `MONGO_URI`
+5. `npm run seed`
+6. `npm start`
+
+## Render Deploy
+
+This repo includes `render.yaml` with two services:
+
+- Backend web service rooted at `server`
+- Frontend static site rooted at `client`
+
+Backend env vars you must set in Render:
+
+```env
+MONGO_URI=your-mongodb-atlas-uri
+CLIENT_URL=https://your-frontend-service.onrender.com
+JWT_SECRET=your-secret
+JWT_EXPIRES_IN=8h
+ENCRYPTION_SECRET=12345678901234567890123456789012
+MAX_FILE_SIZE_MB=10
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-gmail-app-password
+SMTP_FROM=Secure File Manager <your-email@gmail.com>
+EMAIL_ATTACHMENT_LIMIT_MB=20
+```
+
+Frontend env vars you must set in Render:
+
+```env
+VITE_API_URL=https://your-backend-service.onrender.com/api
+```
 
 ## Sample Accounts
 
 - `admin@example.com` / `Admin@123`
 - `user@example.com` / `User@123`
 - Demo OTP: `123456`
-=======
-# Secure-file-management
-The Secure File Management System is a web-based application that allows users to upload, rename, and manage files securely. It uses two-level authentication to protect data, ensuring confidentiality, integrity, and controlled access for safe and reliable file handling.
->>>>>>> fce4eda1fbf3f3e7838cd1e92ce798c37453d5ef
